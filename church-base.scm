@@ -28,11 +28,13 @@
 (define-structure
   (prob-operator-instance
    (constructor make-prob-operator-instance
-                (pspec continuation args #!optional name)))
+                (pspec continuation args
+                       #!optional name constrained?)))
   pspec
   continuation
   args
-  (name '()))
+  (name '())
+  (constrained? #f))
 
 (define (instance-sample instance)
   (pspec-sample (prob-operator-instance-pspec instance)
@@ -50,18 +52,20 @@
   ((prob-operator-instance-continuation operator-instance)
    (instance-sample operator-instance)))
 
-(define (pspec->operator pspec #!optional name)
+(define (pspec->operator pspec #!optional name constrained?)
   (let ((out
          (lambda args
            (call-with-current-continuation
             (lambda (k)
               (add-to-sampler
                (make-prob-operator-instance
-                ;; this does the right thing when name isn't supplied
-                pspec k args name)))))))
+                ;; this does the right thing when some args aren't supplied
+                pspec k args name constrained?)))))))
     (hash-table/put! *pspec-table* out pspec)
     out))
 
+;; Note: right now (named-operator (constrained foo)) doesn't do what
+;; you might expect
 (define (named-operator operator name)
   (pspec->operator
    (hash-table/get *pspec-table* operator '())
@@ -103,11 +107,19 @@
 
 (define *sampler-state* #f)
 
-(define observe
-  (lambda (observed)
-    (if observed
-        'ok
-        (error "Inconsistent observation outside of sampling"))))
+(define (observe observed)
+  (if observed
+      'ok
+      (error "Inconsistent observation outside of sampling")))
+
+(define (constrain operator value)
+  (pspec->operator
+   (make-pspec
+    (lambda args value)
+    (pspec-logmass-function
+     (hash-table/get *pspec-table* operator '())))
+   '()
+   #t))
 
 (define *null-computation-state* (list '*null-computation-state*))
 

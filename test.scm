@@ -357,3 +357,67 @@
                    0.4))))
       (flip)
       (list a b)))))
+
+(define (constrained-bayes-net observation)
+  (let ((cloudy-constraint (list-ref observation 0))
+        (sprinkler-constraint (list-ref observation 1))
+        (rain-constraint (list-ref observation 2))
+        (wet-grass-constraint (list-ref observation 3)))
+    (let* ((cloudy-operator
+            (if cloudy-constraint
+                (constrain (named-operator bernoulli 'cloudy)
+                           cloudy-constraint)
+                (named-operator bernoulli 'cloudy)))
+           (cloudy (cloudy-operator 0.5))
+           (sprinkler-operator
+            (if sprinkler-constraint
+                (constrain (named-operator bernoulli 'sprinkler)
+                           sprinkler-constraint)
+                (named-operator bernoulli 'sprinkler)))
+           (sprinkler-prob
+            (if (= cloudy 1)
+                0.1
+                0.5))
+           (sprinkler (sprinkler-operator
+                       sprinkler-prob))
+           (rain-operator
+            (if rain-constraint
+                (constrain (named-operator bernoulli 'rain)
+                           rain-constraint)
+                (named-operator bernoulli 'rain)))
+           (rain-prob
+            (if (= cloudy 1)
+                0.8
+                0.2))
+           (rain (rain-operator
+                  rain-prob))
+           (wet-grass-operator
+            (if wet-grass-constraint
+                (constrain (named-operator bernoulli 'wet-grass)
+                           wet-grass-constraint)
+                (named-operator bernoulli 'wet-grass)))
+           (wet-grass-prob
+            (cond
+             ((and (= sprinkler 1) (= rain 1))
+              0.99)
+             ((and (= sprinkler 1) (= rain 0))
+              0.9)
+             ((and (= sprinkler 0) (= rain 1))
+              0.9)
+             (else
+              0.01)))
+           (wet-grass (wet-grass-operator
+                       wet-grass-prob)))
+      (list cloudy sprinkler rain wet-grass))))
+
+(define *rejected-samples* 0)
+(define *bad-proposals* 0)
+(equal-histogram
+ (mh-query
+  10000 10000 100
+  (lambda ()
+    (constrained-bayes-net '(#f #f 1 1)))))
+*rejected-samples*
+*bad-proposals*
+;; This should tend to have fewer rejected samples than the named
+;; bayes net, and it should have no bad proposals at all.

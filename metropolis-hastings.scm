@@ -6,15 +6,13 @@
    (constructor make-mh-computation-node
                 (operator-instance
                  operator-value
-                 running-sampling-logmass
-                 sampling-logmass-modifier
+                 log-likelihood
                  infeasible?
                  becomes-infeasible?
                  #!optional reused-value)))
   operator-instance
   operator-value
-  running-sampling-logmass
-  sampling-logmass-modifier
+  log-likelihood
   infeasible?
   becomes-infeasible?
   (reused-value #f))
@@ -58,9 +56,7 @@
           #f
           ;; operator-value
           #f
-          ;; running-sampling-logmass
-          0.0
-          ;; sampling-logmass-modifier
+          ;; log-likelihood
           0.0
           ;; infeasible?
           #f
@@ -113,8 +109,8 @@
     (mh-resume-with-value-thunk operator-instance new-value-thunk
                                 (not resample?))))
 
-(define (mh-resume-with-value-thunk operator-instance value-thunk
-                                    #!optional reused?)
+(define (mh-resume-with-value-thunk
+         operator-instance value-thunk #!optional reused?)
   (let ((node-parent
          (car (mh-state-computation-path *sampler-state*)))
         (computation-node (make-empty-mh-computation-node)))
@@ -122,11 +118,8 @@
     ;; because something like mem might want a reference to it
     (mh-push-computation-node! *sampler-state* computation-node)
     (let* ((operator-value (value-thunk))
-           (sampling-logmass-modifier
+           (log-likelihood
             (instance-logmass operator-instance operator-value))
-           (running-sampling-logmass
-            (+ (mh-computation-node-running-sampling-logmass node-parent)
-               sampling-logmass-modifier))
            (becomes-infeasible?
             (mh-state-becomes-infeasible? *sampler-state*))
            (infeasible?
@@ -136,10 +129,8 @@
        computation-node operator-instance)
       (set-mh-computation-node-operator-value!
        computation-node operator-value)
-      (set-mh-computation-node-running-sampling-logmass!
-       computation-node running-sampling-logmass)
-      (set-mh-computation-node-sampling-logmass-modifier!
-       computation-node sampling-logmass-modifier)
+      (set-mh-computation-node-log-likelihood!
+       computation-node log-likelihood)
       (set-mh-computation-node-infeasible?!
        computation-node infeasible?)
       (set-mh-computation-node-becomes-infeasible?!
@@ -217,28 +208,46 @@
    state
    (mh-state-computation-path *sampler-state*)))
 
+(define (n-unconstrained-nodes path)
+  (cond ((null? path) 0)
+        ((and (mh-computation-node-operator-instance (car path))
+              (not (prob-operator-instance-constrained?
+                    (mh-computation-node-operator-instance
+                     (car path)))))
+         (+ 1 (n-unconstrained-nodes (cdr path))))
+        (else (n-unconstrained-nodes (cdr path)))))
+
 (define (mh-resample)
   (let ((n-resampling-choices
-         (- (length (mh-state-computation-path *sampler-state*)) 1)))
+         (n-unconstrained-nodes
+          (mh-state-computation-path *sampler-state*))))
     (cond
      ((= n-resampling-choices 0) ; computation is deterministic
       (error "Can't resample with no probabilistic operators in computation path"))
      (else
       (let* ((resample-index
               (random n-resampling-choices))
-             (resample-node
-              (list-ref
-               (mh-state-computation-path *sampler-state*)
-               resample-index))
+             (new-path-and-resample-node
+              (let lp ((nodes-to-remove (+ resample-index 1))
+                       (path (mh-state-mc-computation-state
+                              *sampler-state*))
+                       (last-resample-node '()))
+                (cond
+                 ((= nodes-to-remove 0)
+                  (cons path last-resample-node))
+                 ((prob-operator-instance-constrained?
+                   (mh-computation-node-operator-instance (car path)))
+                  (lp nodes-to-remove (cdr path) last-resample-node))
+                 (else
+                  (lp (- nodes-to-remove 1) (cdr path) (car path))))))
+             (new-path (car new-path-and-resample-node))
+             (resample-node (cdr new-path-and-resample-node))
              (resample-operator
               (mh-computation-node-operator-instance resample-node)))
         (set-mh-state-computation-path!
-         *sampler-state*
-         (list-tail (mh-state-mc-computation-state *sampler-state*)
-                    (+ resample-index 1)))
+         *sampler-state* new-path)
         (set-mh-state-common-ancestor!
-         *sampler-state*
-         (car (mh-state-computation-path *sampler-state*)))
+         *sampler-state* (car new-path))
         (set-mh-state-becomes-infeasible?!
          *sampler-state* #f)
         (mh-resume-with-value-thunk
@@ -251,10 +260,10 @@
   (cond ((null? (mh-state-samples state))
          ;; This is the initial sample; definitely accept it
          1)
-        ((<= (length (mh-state-computation-path state)) 1)
+        ((= (n-unconstrained-nodes (mh-state-computation-path state)) 0)
          ;; The computation state doesn't have any probabilistic
-         ;; operators in it. It doesn't actually matter whether we
-         ;; accept or reject here.
+         ;; operators to resample from. It doesn't actually matter
+         ;; whether we accept or reject here.
          1)
         ((or (mh-computation-node-infeasible?
               (car (mh-state-mc-computation-state state)))
@@ -289,16 +298,24 @@
                       (mh-state-common-ancestor state))
                  'done
                  (begin
-                   (if (mh-computation-node-reused-value (car path))
-                       (let ((name (prob-operator-instance-name
-                                    (mh-computation-node-operator-instance
-                                     (car path))))
-                             (delta-logratio
-                              (mh-computation-node-sampling-logmass-modifier
-                               (car path))))
-                         (hash-table/put! reused-names name #t)
-                         (set! running-log-ratio
-                               (+ running-log-ratio delta-logratio))))
+                   (cond
+                    ((prob-operator-instance-constrained?
+                      (mh-computation-node-operator-instance
+                       (car path)))
+                     (let ((delta-logratio
+                            (mh-computation-node-log-likelihood (car path))))
+                       (set! running-log-ratio
+                             (+ running-log-ratio delta-logratio))))
+                    ((mh-computation-node-reused-value (car path))
+                     (let ((name
+                            (prob-operator-instance-name
+                             (mh-computation-node-operator-instance
+                              (car path))))
+                           (delta-logratio
+                            (mh-computation-node-log-likelihood (car path))))
+                       (hash-table/put! reused-names name #t)
+                       (set! running-log-ratio
+                             (+ running-log-ratio delta-logratio)))))
                    (lp (cdr path)))))
            ;; now that reused-names is populated, find the
            ;; contributions from the original sample.
@@ -312,17 +329,19 @@
                                 (mh-computation-node-operator-instance
                                  (car path))))
                          (delta-logratio
-                          (mh-computation-node-sampling-logmass-modifier
-                           (car path))))
-                     (if (hash-table/get reused-names name #f)
+                          (mh-computation-node-log-likelihood (car path))))
+                     (if (or (hash-table/get reused-names name #f)
+                             (prob-operator-instance-constrained?
+                              (mh-computation-node-operator-instance
+                               (car path))))
                          (set! running-log-ratio
                                (- running-log-ratio delta-logratio))))
                    (lp (cdr path)))))
            (let ((length-contribution
-                  (/ (- (length (mh-state-mc-computation-state state))
-                        1)
-                     (- (length (mh-state-computation-path state))
-                        1))))
+                  (/ (n-unconstrained-nodes
+                      (mh-state-mc-computation-state state))
+                     (n-unconstrained-nodes
+                      (mh-state-computation-path state)))))
              (* (logmass->mass running-log-ratio)
                 length-contribution))))))
 
