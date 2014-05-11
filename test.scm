@@ -74,7 +74,6 @@
      (observe (= (+ result1 result2) 1))
      (list result1 result2))))
 ;; expected output: list of 20 (1 0) and (0 1), with a ~4:1 ratio
-;; TODO consider just letting samplers collect histograms if they want
 
 (let ((n 1000))
   (/ (fold-left
@@ -135,9 +134,6 @@
 ;; in the top-level list, w should be approximately evenly distributed
 ;; (actually 51% 0 for w and 51% 1 for y, but that won't be visible on
 ;; this level)
-
-;;; TODO test rejection sampling and observations that aren't just 0
-;;; or 1
 
 
 ;;; Tests for metropolis-hastings

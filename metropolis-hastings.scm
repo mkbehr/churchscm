@@ -26,9 +26,6 @@
 (define-structure
   (mh-state
    (constructor make-mh-state%
-                ;; TODO figure out what lag is canonically called -
-                ;; the number of samples to throw out between every
-                ;; sample we draw
                 (nsamples burn-in lag output-continuation
                  computation-root computation-path)))
   nsamples
@@ -91,7 +88,11 @@
           (cond
            ((null? name) #t) ;; no name means no stored value
            ((eq? lcrecord default) #t) ;; no entry in table
-           ;; TODO explain this if it works
+           ;; If the operator instance wasn't part of the previous
+           ;; state's computation, then the recorded value is
+           ;; stale. Note that mh-resume-with-value-thunk will update
+           ;; the record if we don't resample, so we only have to
+           ;; check the previous state.
            ((not (mh-in-computation?
                   (local-computation-record-computation-state
                    lcrecord)
@@ -156,16 +157,12 @@
       ((prob-operator-instance-continuation operator-instance)
        operator-value))))
 
-;; TODO many functions here look the same as in rejection
-;; sampling. Consider abstracting. Will mark with "TODO duplicated
-;; code; see above".
 (define (mh-return)
   ((mh-state-output-continuation *sampler-state*)
    ;; samples are collected in reverse order, so put them back before
    ;; returning
    (reverse (mh-state-samples *sampler-state*))))
 
-;; TODO duplicated code; see above
 (define (mh-state-add-sample! state sample)
   (set-mh-state-samples!
    state
@@ -208,7 +205,6 @@
     (cond
      ((eq? path state) #t)
      ((null? path)
-      ;; TODO duplicated code; see above
       (call-with-current-continuation
        (lambda (k)
          (within-continuation
@@ -327,9 +323,6 @@
                         1)
                      (- (length (mh-state-computation-path state))
                         1))))
-             ;; TODO remember to take those last observations into
-             ;; account (but I'm just going to rework how observations
-             ;; work)
              (* (logmass->mass running-log-ratio)
                 length-contribution))))))
 
@@ -376,15 +369,15 @@
                       (mh-state-becomes-infeasible? *sampler-state*)))
                    (begin (mh-maybe-record! (mh-state-mc-value-state
                                              *sampler-state*))
-                          ;; DEBUG?
-                          (set! *rejected-samples* (+
-                                                    *rejected-samples*
-                                                    1))))
+                          (set! *rejected-samples*
+                                (+ *rejected-samples* 1))))
                (cond
                 ((>= (mh-state-samples-recorded *sampler-state*)
                      (mh-state-nsamples *sampler-state*))
                  (mh-return)) ; we're finished
-                ((<= (length (mh-state-computation-path *sampler-state*)) 1)
-                 (lp sample)) ;; no probabilistic operators, so no
-                              ;; need to resample
+                ((<=
+                  (length (mh-state-computation-path *sampler-state*))
+                  1)
+                 ;; no probabilistic operators, so no need to resample
+                 (lp sample)) 
                 (else (mh-resample))))))))))

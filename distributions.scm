@@ -1,7 +1,7 @@
-(define *pi* (acos -1))
-
 ;;; Discrete distributions
 
+;; Simulates a fair coin flip: returns 1 with probability 1/2 and 0
+;; with probability 1/2.
 (define flip-spec
   (make-pspec
    (lambda () (random 2))
@@ -11,9 +11,10 @@
         (cond ((= x 1) 1/2)
               ((= x 0) 1/2)
               (else 0)))))))
-
 (define flip (pspec->operator flip-spec))
 
+;; Bernoulli distribution: returns 1 with probability p and 0 with
+;; probability 1-p.
 (define bernoulli-spec
   (make-pspec
    (lambda (p)
@@ -26,7 +27,6 @@
         (cond ((= x 1) p)
               ((= x 0) (- 1 p))
               (else 0)))))))
-
 (define bernoulli
   (pspec->operator bernoulli-spec))
 
@@ -50,6 +50,7 @@
                    e
                    (loop (/ e 2)))))))
     (+ logdensity (log epsilon))))
+(define density->logdensity mass->logmass)
 
 ;; Uniform distribution: returns a value between a inclusive and b
 ;; exclusive. Assumes a < b.
@@ -69,11 +70,17 @@
 (define cont-uniform
   (pspec->operator cont-uniform-spec))
 
+;; Normal distribution with mean of mean and standard deviation of
+;; stdev.
 (define normal-spec
   (make-pspec
    (lambda (mean stdev)
      ;; draw from standard normal distribution using marsaglia polar
      ;; method
+     ;; note: if it is desired to draw as few random numbers as
+     ;; possible, this can be rewritten to generate two standard
+     ;; normal deviates instead of one, the other being
+     ;; (* v (sqrt (/ (* -2 (log s)) s)))
      (let lp ((u (- 1 (random 2.0)))
               (v (- 1 (random 2.0))))
        (let ((s (+ (square u) (square v))))
@@ -84,7 +91,7 @@
    (lambda (mean stdev)
      (lambda (x)
        (logdensity->logmass
-        (mass->logmass
+        (density->logdensity
          (/
           (exp (-
                 (/ (square (- x mean))

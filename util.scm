@@ -1,3 +1,8 @@
+(define *pi* (acos -1))
+(define +inf (/ 1.0 0.0))
+(define -inf (/ -1.0 0.0))
+(define NaN (+ +inf -inf))
+
 (define (equal-histogram samples)
   (define hist-table (make-equal-hash-table))
   (define not-in-table (list 'not-in-table))

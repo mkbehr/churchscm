@@ -1,6 +1,3 @@
-(define +inf (/ 1.0 0.0))
-(define -inf (/ -1.0 0.0))
-(define NaN (+ +inf -inf))
 (define (mass->logmass mass)
   (if (= mass 0)
       -inf
@@ -99,9 +96,7 @@
             (local-computation-record-value recorded-out))))))
 
 
-;; TODO maybe a generic operator for sampling from specs
-
-(define add-to-sampler ;; TODO think about what this should be called
+(define add-to-sampler
   (lambda (operator-instance)
     ((prob-operator-instance-continuation operator-instance)
      (instance-sample operator-instance))))
@@ -117,7 +112,7 @@
 (define *null-computation-state* (list '*null-computation-state*))
 
 (define sampler-computation-state
-  (lambda () *null-computation-state*)) ;; TODO think these two out a bit more
+  (lambda () *null-computation-state*))
 
 (define sampler-in-computation?
   (lambda (state) (eq? state *null-computation-state*)))

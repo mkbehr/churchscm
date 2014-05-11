@@ -34,19 +34,11 @@
    state
    (- (rejection-state-cutoff state) 1)))
 
-;; TODO is this unique to rejection sampling? Do we want some way to
-;; report the mass/density of our current sample for the general case,
-;; or is it enough to define everything in terms of something like
-;; this? Or should we have neither in the general case, and the
-;; sampler itself defines what it means to observe?
-
-;; TODO properly make sure we're using the right kind of sampling when
-;; we try to call a sampling-method-specific function
 (define (rejection-reject)
   (set-rejection-state-cutoff!
    *sampler-state*
    (- (rejection-state-cutoff *sampler-state*) 1))
-  (if (<= ; have we tried too many times?
+  (if (<= ;; have we tried too many times?
        (rejection-state-cutoff *sampler-state*)
        0)
       (rejection-return)
@@ -76,14 +68,13 @@
 
 (define (rejection-restart)
   (let ((top-level (rejection-state-top-level *sampler-state*)))
-    (set-rejection-state-computation-state! *sampler-state*
-                                            (generate-uninterned-symbol))
+    (set-rejection-state-computation-state!
+     *sampler-state* (generate-uninterned-symbol))
     ((prob-operator-instance-continuation top-level)
      (instance-sample top-level))))
 
 (define (rejection-query samples cutoff thunk)
-  (if (or (<= samples 0)
-          (<= cutoff 0))
+  (if (or (<= samples 0) (<= cutoff 0))
       '()
       (call-with-current-continuation
          (lambda (out)
@@ -100,12 +91,8 @@
              (let lp ((sample (thunk)))
                (rejection-state-add-sample! *sampler-state* sample)
                (if (or
-                    (<=
-                     (rejection-state-nsamples *sampler-state*) ; samples remaining
-                     0)
-                    (<=            ; have we tried too many times?
-                     (rejection-state-cutoff *sampler-state*)
-                     0))
+                    (<= (rejection-state-nsamples *sampler-state*) 0)
+                    (<= (rejection-state-cutoff *sampler-state*) 0))
                    (rejection-return)
                    (if (null? (rejection-state-top-level *sampler-state*))
                        (lp (thunk))
