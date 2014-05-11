@@ -1,5 +1,6 @@
 (define +inf (/ 1.0 0.0))
 (define -inf (/ -1.0 0.0))
+(define NaN (+ +inf -inf))
 (define (mass->logmass mass)
   (if (= mass 0)
       -inf
@@ -107,11 +108,9 @@
 
 (define *sampler-state* #f)
 
-;; Call with the mass you observed.
-;; TODO update to be less bad
 (define observe
   (lambda (observed)
-    (if (> observed 0)
+    (if observed
         'ok
         (error "Inconsistent observation outside of sampling"))))
 

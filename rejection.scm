@@ -53,9 +53,7 @@
       (rejection-restart)))
 
 (define (rejection-observe observed)
-  ;; note that (random 1.0) returns a value between zero inclusive and
-  ;; one exclusive
-  (if (< (random 1.0) observed)
+  (if observed
       'ok
       (rejection-reject)))
 

@@ -2,9 +2,9 @@
 
 (flip)
 ;; expected output: 1 or 0
-(observe 1)
+(observe #t)
 ;; expected output: not an error
-(observe 0)
+(observe #f)
 ;; expected output: error
 
 ;;; Continuous distributions
@@ -53,9 +53,7 @@
    (pp "This should only print once")
    (let ((result1 (flip))
          (result2 (flip)))
-     (observe (if (= (+ result1 result2) 1)
-                  1
-                  0))
+     (observe (= (+ result1 result2) 1))
      (list result1 result2))))
 ;; expected output: print "This should only print once", return list
 ;; of 20 (1 0) and (0 1), evenly distributed
@@ -64,7 +62,7 @@
  10 100
  (lambda ()
    (let ((result (flip)))
-     (observe 0)
+     (observe #f)
      result)))
 ;; expected output: empty list
 
@@ -73,9 +71,7 @@
  (lambda ()
    (let ((result1 (bernoulli 2/3))
          (result2 (bernoulli 1/3)))
-     (observe (if (= (+ result1 result2) 1)
-                  1
-                  0))
+     (observe (= (+ result1 result2) 1))
      (list result1 result2))))
 ;; expected output: list of 20 (1 0) and (0 1), with a ~4:1 ratio
 ;; TODO consider just letting samplers collect histograms if they want
@@ -179,9 +175,7 @@
         (for-each
          (lambda (val ob)
            (if ob
-               (if (= val ob)
-                   (observe 1)
-                   (observe 0))))
+               (observe (= val ob))))
          (list cloudy sprinkler rain wet-grass)
          observation))
     (list cloudy sprinkler rain wet-grass)))
@@ -194,7 +188,7 @@
 
 (equal-histogram
  (mh-query
-  10000 100 10
+  10000 1000 10
   (lambda ()
     (simple-bayes-net '(#f #f #f 1)))))
 ;; these two should return similar values
@@ -272,9 +266,7 @@
         (for-each
          (lambda (val ob)
            (if ob
-               (if (= val ob)
-                   (observe 1)
-                   (observe 0))))
+               (observe (= val ob))))
          (list cloudy sprinkler rain wet-grass)
          observation))
     (list cloudy sprinkler rain wet-grass)))
@@ -284,6 +276,12 @@
   10000 100000
   (lambda ()
     (simple-bayes-net '(#f #f 1 1)))))
+
+(equal-histogram
+ (rejection-query
+  10000 100000
+  (lambda ()
+    (named-bayes-net '(#f #f 1 1)))))
 
 (define *rejected-samples* 0)
 (define *bad-proposals* 0)
@@ -304,6 +302,11 @@
     (named-bayes-net '(#f #f 1 1)))))
 *rejected-samples*
 *bad-proposals*
+;; Sampling from named-bayes-net should give fewer rejected proposals
+;; and bad proposals than sampling from simple-bayes-net. Also,
+;; simple-bayes-net should give equal numbers of rejected proposals
+;; and bad proposals, but named-bayes-net should reject some feasible
+;; proposals.
 
 (equal-histogram
  (rejection-query
@@ -339,9 +342,22 @@
  (mh-query
   10000 0 10
   (lambda ()
+    (let* ((a ((named-operator bernoulli '()) 0.5))
+           (b ((named-operator bernoulli '())
+               (if (= a 1)
+                   0.8
+                   0.4))))
+      (flip)
+      (list a b)))))
+
+(equal-histogram
+ (mh-query
+  10000 0 10
+  (lambda ()
     (let* ((a ((named-operator bernoulli 'a) 0.5))
            (b ((named-operator bernoulli 'b)
                (if (= a 1)
                    0.8
                    0.4))))
+      (flip)
       (list a b)))))

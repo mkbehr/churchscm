@@ -7,18 +7,16 @@
                 (operator-instance
                  operator-value
                  running-sampling-logmass
-                 running-observed-logmass
                  sampling-logmass-modifier
-                 observed-logmass-modifier
+                 infeasible?
+                 becomes-infeasible?
                  #!optional reused-value)))
   operator-instance
   operator-value
   running-sampling-logmass
-  ;; note: observed mass is not actually a proper probability mass,
-  ;; because it is less than or equal to sampling mass.
-  running-observed-logmass
   sampling-logmass-modifier
-  observed-logmass-modifier
+  infeasible?
+  becomes-infeasible?
   (reused-value #f))
 
 (define (make-empty-mh-computation-node)
@@ -41,22 +39,19 @@
   (samples '())
   (samples-drawn 0)
   (samples-recorded 0)
+  (common-ancestor)
   ;; mc-value-state and mc-computation-state store the last value
   ;; accepted in the markov chain and its corresponding computation
   ;; path.
   (mc-value-state)
   (mc-computation-state)
-  ;; There's currently some gymnastics required to keep track of this
-  ;; and reset running-observed-mass-modifier at appropriate times,
-  ;; because any observations made after the last probabilistic
-  ;; operator are not reflected in the computation state structure.
-  (mc-observed-logmass-modifier 0)
+  (mc-becomes-infeasible? #f)
   ;; computation-path is a stack of mh-computation-nodes, with the
   ;; special computation-root node at the bottom. Note: this stack
   ;; should /not/ be destructively modified, but rebinding
   ;; computation-path in order to push and pop is fine.
   computation-path
-  (running-observed-logmass-modifier 0)
+  (becomes-infeasible? #f)
   (named-operator-values (make-weak-eq-hash-table)))
 
 (define (make-mh-state nsamples burn-in lag output-continuation)
@@ -68,12 +63,12 @@
           #f
           ;; running-sampling-logmass
           0.0
-          ;; running-observed-logmass
-          0.0
           ;; sampling-logmass-modifier
           0.0
-          ;; observed-logmass-modifier
-          0.0)))
+          ;; infeasible?
+          #f
+          ;; becomes-infeasible?
+          #f)))
     (make-mh-state% nsamples burn-in lag output-continuation
                     computation-root (list computation-root))))
 
@@ -128,33 +123,31 @@
     (let* ((operator-value (value-thunk))
            (sampling-logmass-modifier
             (instance-logmass operator-instance operator-value))
-           (observed-logmass-modifier
-            (+ sampling-logmass-modifier
-               (mh-state-running-observed-logmass-modifier
-                *sampler-state*)))
            (running-sampling-logmass
             (+ (mh-computation-node-running-sampling-logmass node-parent)
                sampling-logmass-modifier))
-           (running-observed-logmass
-            (+ (mh-computation-node-running-observed-logmass node-parent)
-               observed-logmass-modifier)))
+           (becomes-infeasible?
+            (mh-state-becomes-infeasible? *sampler-state*))
+           (infeasible?
+            (or becomes-infeasible?
+                (mh-computation-node-infeasible? node-parent))))
       (set-mh-computation-node-operator-instance!
        computation-node operator-instance)
       (set-mh-computation-node-operator-value!
        computation-node operator-value)
       (set-mh-computation-node-running-sampling-logmass!
        computation-node running-sampling-logmass)
-      (set-mh-computation-node-running-observed-logmass!
-       computation-node running-observed-logmass)
       (set-mh-computation-node-sampling-logmass-modifier!
        computation-node sampling-logmass-modifier)
-      (set-mh-computation-node-observed-logmass-modifier!
-       computation-node observed-logmass-modifier)
+      (set-mh-computation-node-infeasible?!
+       computation-node infeasible?)
+      (set-mh-computation-node-becomes-infeasible?!
+       computation-node becomes-infeasible?)
       (if (not (default-object? reused?))
           (set-mh-computation-node-reused-value!
            computation-node reused?))
-      (set-mh-state-running-observed-logmass-modifier!
-       *sampler-state* 0)
+      (set-mh-state-becomes-infeasible?!
+       *sampler-state* #f)
       (let ((name (prob-operator-instance-name operator-instance)))
         (if (not (null? name))
             (hash-table/put! (mh-state-named-operator-values *sampler-state*)
@@ -202,10 +195,10 @@
       (car (mh-state-samples state))))
 
 (define (mh-observe observed)
-  (set-mh-state-running-observed-logmass-modifier!
-   *sampler-state*
-   (+ (mh-state-running-observed-logmass-modifier *sampler-state*)
-      (mass->logmass observed))))
+  (if observed
+      'ok
+      (set-mh-state-becomes-infeasible?!
+       *sampler-state* #t)))
 
 (define (mh-computation-state)
   (mh-state-computation-path *sampler-state*))
@@ -245,84 +238,100 @@
               (mh-computation-node-operator-instance resample-node)))
         (set-mh-state-computation-path!
          *sampler-state*
-         (list-tail (mh-state-computation-path *sampler-state*)
+         (list-tail (mh-state-mc-computation-state *sampler-state*)
                     (+ resample-index 1)))
-        (set-mh-state-running-observed-logmass-modifier!
-         *sampler-state* 0)
+        (set-mh-state-common-ancestor!
+         *sampler-state*
+         (car (mh-state-computation-path *sampler-state*)))
+        (set-mh-state-becomes-infeasible?!
+         *sampler-state* #f)
         (mh-resume-with-value-thunk
          resample-operator
          (lambda ()
            (instance-sample resample-operator))))))))
 
-;; TODO this could use a better name
-(define (log-sampling-mass-difference old-path new-path)
-  (define out 0)
-  ;; Note: for this purpose, we assume that whether or not an operator
-  ;; is resampled is deterministic and symmetric.
-  (define old-path-entries (make-eq-hash-table))
-  (for-each
-   (lambda (node)
-     (hash-table/put! old-path-entries node #t))
-   old-path)
-  ;; Assume the common ancestor exists. It will unless something has
-  ;; gone wrong.
-  (let ((common-ancestor
-         (let lp ((path new-path))
-           (if (hash-table/get old-path-entries (car path) #f)
-               (car path)
-               (lp (cdr path))))))
-    (define name-table (make-eq-hash-table))
-    ;; Go through all the nodes in the old computation up to the
-    ;; common ancestor: if they don't have a name, add them to the
-    ;; bias right away. Otherwise, store them in the name table. As
-    ;; always, assume that no two operators have the same name.
-    (let lp ((path old-path))
-      (if (eq? (car path) common-ancestor)
-          'done
-          (let ((name (prob-operator-instance-name
-                       (mh-computation-node-operator-instance
-                        (car path)))))
-            (if (null? name)
-                (set! out
-                      (+ out
-                         (mh-computation-node-sampling-logmass-modifier
-                          (car path))))
-                (hash-table/put! name-table name (car path)))
-            (lp (cdr path)))))
-    ;; Now go through the nodes in the new computation up to the
-    ;; common ancestor. Check to see if they have a counterpart in the
-    ;; name table. If the counterpart exists and we didn't resample,
-    ;; then by our earlier assumption that resampling is deterministic
-    ;; and symmetric, we can ignore them both. Otherwise, proceed as
-    ;; normal: subtract them from the bias and leave the entry in the
-    ;; name table to be taken into account at the next step.
-    (let lp ((path new-path))
-      (if (eq? (car path) common-ancestor)
-          'done
-          (let* ((name (prob-operator-instance-name
-                        (mh-computation-node-operator-instance
-                         (car path))))
-                 (lookup-object
-                  (hash-table/get name-table name #f)))
-            (if (and lookup-object
-                     (mh-computation-node-reused-value
-                      (car path)))
-                (hash-table/remove! name-table name)
-                (set! out
-                      (- out
-                         (mh-computation-node-sampling-logmass-modifier
-                          (car path))))))))
-    ;; Finally, take into account any remaining nodes in the name
-    ;; table.
-    (for-each
-     (lambda (node)
-       (set! out
-             (+ out
-                (mh-computation-node-sampling-logmass-modifier
-                 node))))
-     (hash-table/datum-list name-table)))
-  out)
 
+(define (acceptance-ratio state)
+  (cond ((null? (mh-state-samples state))
+         ;; This is the initial sample; definitely accept it
+         1)
+        ((<= (length (mh-state-computation-path state)) 1)
+         ;; The computation state doesn't have any probabilistic
+         ;; operators in it. It doesn't actually matter whether we
+         ;; accept or reject here.
+         1)
+        ((or (mh-computation-node-infeasible?
+              (car (mh-state-mc-computation-state state)))
+             (mh-state-mc-becomes-infeasible? state))
+         ;; Our previous state was infeasible. Just accept all
+         ;; proposals until we find a feasible state. (Note that this
+         ;; means that an infeasible sample may be recorded if the
+         ;; burn-in period is too low and it is too hard to find an
+         ;; initial sample)
+         1)
+        ((or (mh-computation-node-infeasible?
+              (car (mh-state-computation-path state)))
+             (mh-state-becomes-infeasible? state))
+         ;; Our previous state was feasible, but our new state isn't,
+         ;; so the transition probability is 0.
+         0)
+        (else
+         ;; Proceed as normal. The acceptance ratio depends on all the
+         ;; nodes for which the proposal distribution differs from the
+         ;; distribution to be sampled from, as well as the number of
+         ;; nodes in each state's computational history.
+         (let ((reused-names (make-eq-hash-table))
+               (running-log-ratio 0))
+           ;; reused-names will act as a hash set, containing the name
+           ;; of every operator for which samples were reused. For the
+           ;; current purposes, assume that if a sample is reused
+           ;; while proposing x -> x', then that sample would also be
+           ;; reused while proposing x' -> x.
+           (let lp ((path
+                     (mh-state-computation-path state)))
+             (if (eq? (car path)
+                      (mh-state-common-ancestor state))
+                 'done
+                 (begin
+                   (if (mh-computation-node-reused-value (car path))
+                       (let ((name (prob-operator-instance-name
+                                    (mh-computation-node-operator-instance
+                                     (car path))))
+                             (delta-logratio
+                              (mh-computation-node-sampling-logmass-modifier
+                               (car path))))
+                         (hash-table/put! reused-names name #t)
+                         (set! running-log-ratio
+                               (+ running-log-ratio delta-logratio))))
+                   (lp (cdr path)))))
+           ;; now that reused-names is populated, find the
+           ;; contributions from the original sample.
+           (let lp ((path
+                     (mh-state-mc-computation-state state)))
+             (if (eq? (car path)
+                      (mh-state-common-ancestor state))
+                 'done
+                 (begin
+                   (let ((name (prob-operator-instance-name
+                                (mh-computation-node-operator-instance
+                                 (car path))))
+                         (delta-logratio
+                          (mh-computation-node-sampling-logmass-modifier
+                           (car path))))
+                     (if (hash-table/get reused-names name #f)
+                         (set! running-log-ratio
+                               (- running-log-ratio delta-logratio))))
+                   (lp (cdr path)))))
+           (let ((length-contribution
+                  (/ (- (length (mh-state-mc-computation-state state))
+                        1)
+                     (- (length (mh-state-computation-path state))
+                        1))))
+             ;; TODO remember to take those last observations into
+             ;; account (but I'm just going to rework how observations
+             ;; work)
+             (* (logmass->mass running-log-ratio)
+                length-contribution))))))
 
 (define (mh-query nsamples burn-in lag thunk)
   (if (<= nsamples 0)
@@ -346,139 +355,25 @@
            ;; - accept or reject
            ;; - update state accordingly
            (let lp ((sample (thunk)))
-             (let* ((acceptance-ratio
-                     (cond
-                      ((null? (mh-state-samples *sampler-state*))
-                       ;; This is the initial sample; definitely accept it
-                       1)
-                      ((<= (length
-                            (mh-state-computation-path
-                             *sampler-state*))
-                           1)
-                       ;; The computation state doesn't have any
-                       ;; probabilistic operators in it. Calculating
-                       ;; the acceptance ratio normally would divide
-                       ;; by zero, but all samples are the same, so we
-                       ;; can just accept.
-                       1)
-                      ((= (+
-                           (mh-computation-node-running-observed-logmass
-                            (car (mh-state-mc-computation-state
-                                  *sampler-state*)))
-                           (mh-state-mc-observed-logmass-modifier
-                            *sampler-state*))
-                          -inf)
-                       ;; Our previous state was infeasible. This
-                       ;; would again result in division by zero, so
-                       ;; just accept all proposals until we find a
-                       ;; feasible state. (Note that this means that
-                       ;; an infeasible sample may be recorded if the
-                       ;; burn-in period is too low and it is too hard
-                       ;; to find an initial sample)
-                       1)
-                      (else
-                       ;; Proceed as normal. The acceptance ratio is
-                       ;; (P(x')/P(x)) * (g(x' -> x) / g(x -> x'))
-                       ;; (capped at 1, but this happens implicitly).
-                       (let ((logmass-difference
-                              ;; Note: this will divide by zero if a
-                              ;; sample with sampling mass of 0 is
-                              ;; ever accepted. This should never
-                              ;; happen, but it is important to take
-                              ;; care that the initial sample is
-                              ;; feasible.
-                              (-
-                               ;; get the running mass we just
-                               ;; computed, making sure to factor in
-                               ;; any last-minute observations...
-                               (+
-                                (mh-computation-node-running-observed-logmass
-                                 (car (mh-state-computation-path
-                                       *sampler-state*)))
-                                (mh-state-running-observed-logmass-modifier
-                                 *sampler-state*))
-                               ;; and do the same for our previous
-                               ;; state.
-                               (+
-                                (mh-computation-node-running-observed-logmass
-                                 (car (mh-state-mc-computation-state
-                                       *sampler-state*)))
-                                (mh-state-mc-observed-logmass-modifier
-                                 *sampler-state*))))
-                             ;; Assuming that we make a uniform
-                             ;; choice of which operator to resample
-                             ;; from, the bias ratio depends only on
-                             ;; the sampling mass and the length of
-                             ;; each state's computation path. See my
-                             ;; notes from may 3 (TODO: see the
-                             ;; writeup) for why.
-                             (logbias-difference
-                              (+
-                               (mass->logmass
-                                (/ (- (length
-                                       (mh-state-mc-computation-state
-                                        *sampler-state*))
-                                      1)
-                                   (- (length
-                                       (mh-state-computation-path
-                                        *sampler-state*))
-                                      1)))
-                               (log-sampling-mass-difference
-                                (mh-state-mc-computation-state
-                                 *sampler-state*)
-                                (mh-state-computation-path
-                                 *sampler-state*)))))
-                         ;; DEBUG
-                         ;; (pp (list logmass-difference logbias-difference))
-                         (logmass->mass
-                          (+ logmass-difference logbias-difference))))))
+             (let* ((alpha (acceptance-ratio *sampler-state*))
                     ;; note: (random 1.0) returns a number between
                     ;; zero inclusive and one exclusive. if alpha is 0
                     ;; and we draw a 0, we need to make sure to
                     ;; reject. So we accept if the acceptance ratio is
                     ;; strictly greater than the number drawn.
-                    (accepted (< (random 1.0) acceptance-ratio)))
-               (if (= acceptance-ratio 0)
+                    (accepted (< (random 1.0) alpha)))
+               (if (= alpha 0)
                    (set! *bad-proposals* (+ *bad-proposals* 1)))
-               ;; DEBUG
-               (if #f
-                   (pp (list (mh-state-mc-value-state *sampler-state*)
-                             sample
-                             acceptance-ratio
-                             (if (and
-                                  (mh-state-mc-computation-state
-                                   *sampler-state*)
-                                  (mh-state-computation-path
-                                   *sampler-state*))
-                                 (-
-                                  (+
-                                   (mh-computation-node-running-observed-logmass
-                                    (car (mh-state-computation-path
-                                          *sampler-state*)))
-                                   (mh-state-running-observed-logmass-modifier
-                                    *sampler-state*))
-                                  (mh-computation-node-running-sampling-logmass
-                                   (car (mh-state-mc-computation-state
-                                         *sampler-state*)))))
-                             (if (mh-state-mc-computation-state
-                                  *sampler-state*)
-                                 (exp (mh-computation-node-running-sampling-logmass
-                                       (car (mh-state-mc-computation-state
-                                             *sampler-state*)))))
-                             (if (mh-state-computation-path
-                                  *sampler-state*)
-                                 (exp (mh-computation-node-running-sampling-logmass
-                                       (car (mh-state-computation-path
-                                             *sampler-state*))))))))
                (if accepted
                    (begin
                      (mh-maybe-record! sample)
                      (set-mh-state-mc-value-state! *sampler-state* sample)
-                     (set-mh-state-mc-computation-state! *sampler-state*
-                                                         (mh-state-computation-path *sampler-state*))
-                     (set-mh-state-mc-observed-logmass-modifier!
+                     (set-mh-state-mc-computation-state!
                       *sampler-state*
-                      (mh-state-running-observed-logmass-modifier *sampler-state*)))
+                      (mh-state-computation-path *sampler-state*))
+                     (set-mh-state-mc-becomes-infeasible?!
+                      *sampler-state*
+                      (mh-state-becomes-infeasible? *sampler-state*)))
                    (begin (mh-maybe-record! (mh-state-mc-value-state
                                              *sampler-state*))
                           ;; DEBUG?
@@ -490,6 +385,6 @@
                      (mh-state-nsamples *sampler-state*))
                  (mh-return)) ; we're finished
                 ((<= (length (mh-state-computation-path *sampler-state*)) 1)
-                 (lp sample)) ; no probabilistic operators, so no
-                                        ; need to resample
+                 (lp sample)) ;; no probabilistic operators, so no
+                              ;; need to resample
                 (else (mh-resample))))))))))
