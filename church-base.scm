@@ -48,10 +48,6 @@
 (define (instance-mass instance x)
   (logmass->mass (instance-logmass instance x)))
 
-(define (resume operator-instance)
-  ((prob-operator-instance-continuation operator-instance)
-   (instance-sample operator-instance)))
-
 (define (pspec->operator pspec #!optional name constrained?)
   (let ((out
          (lambda args
@@ -59,10 +55,14 @@
             (lambda (k)
               (add-to-sampler
                (make-prob-operator-instance
-                ;; this does the right thing when some args aren't supplied
+                ;; this does the right thing when some args aren't
+                ;; supplied
                 pspec k args name constrained?)))))))
     (hash-table/put! *pspec-table* out pspec)
     out))
+
+(define (make-operator args)
+  (pspec->operator (apply make-pspec args)))
 
 ;; Note: right now (named-operator (constrained foo)) doesn't do what
 ;; you might expect

@@ -106,8 +106,8 @@
                 (let ((new-value
                        (local-computation-record-value lcrecord)))
                   (lambda () new-value))))))
-    (mh-resume-with-value-thunk operator-instance new-value-thunk
-                                (not resample?))))
+    (mh-resume-with-value-thunk
+     operator-instance new-value-thunk (not resample?))))
 
 (define (mh-resume-with-value-thunk
          operator-instance value-thunk #!optional reused?)
@@ -142,9 +142,10 @@
        *sampler-state* #f)
       (let ((name (prob-operator-instance-name operator-instance)))
         (if (not (null? name))
-            (hash-table/put! (mh-state-named-operator-values *sampler-state*)
-                             name
-                             (make-local-computation-record operator-value))))
+            (hash-table/put!
+             (mh-state-named-operator-values *sampler-state*)
+             name
+             (make-local-computation-record operator-value))))
       ((prob-operator-instance-continuation operator-instance)
        operator-value))))
 
@@ -222,8 +223,9 @@
          (n-unconstrained-nodes
           (mh-state-computation-path *sampler-state*))))
     (cond
-     ((= n-resampling-choices 0) ; computation is deterministic
-      (error "Can't resample with no probabilistic operators in computation path"))
+     ((= n-resampling-choices 0) ;; computation is deterministic
+      (error
+       "Can't resample from a deterministic computation"))
      (else
       (let* ((resample-index
               (random n-resampling-choices))
@@ -260,7 +262,8 @@
   (cond ((null? (mh-state-samples state))
          ;; This is the initial sample; definitely accept it
          1)
-        ((= (n-unconstrained-nodes (mh-state-computation-path state)) 0)
+        ((= (n-unconstrained-nodes (mh-state-computation-path state))
+            0)
          ;; The computation state doesn't have any probabilistic
          ;; operators to resample from. It doesn't actually matter
          ;; whether we accept or reject here.
@@ -303,7 +306,8 @@
                       (mh-computation-node-operator-instance
                        (car path)))
                      (let ((delta-logratio
-                            (mh-computation-node-log-likelihood (car path))))
+                            (mh-computation-node-log-likelihood
+                             (car path))))
                        (set! running-log-ratio
                              (+ running-log-ratio delta-logratio))))
                     ((mh-computation-node-reused-value (car path))
@@ -312,7 +316,8 @@
                              (mh-computation-node-operator-instance
                               (car path))))
                            (delta-logratio
-                            (mh-computation-node-log-likelihood (car path))))
+                            (mh-computation-node-log-likelihood
+                             (car path))))
                        (hash-table/put! reused-names name #t)
                        (set! running-log-ratio
                              (+ running-log-ratio delta-logratio)))))
@@ -329,7 +334,8 @@
                                 (mh-computation-node-operator-instance
                                  (car path))))
                          (delta-logratio
-                          (mh-computation-node-log-likelihood (car path))))
+                          (mh-computation-node-log-likelihood
+                           (car path))))
                      (if (or (hash-table/get reused-names name #f)
                              (prob-operator-instance-constrained?
                               (mh-computation-node-operator-instance
@@ -379,7 +385,8 @@
                (if accepted
                    (begin
                      (mh-maybe-record! sample)
-                     (set-mh-state-mc-value-state! *sampler-state* sample)
+                     (set-mh-state-mc-value-state!
+                      *sampler-state* sample)
                      (set-mh-state-mc-computation-state!
                       *sampler-state*
                       (mh-state-computation-path *sampler-state*))

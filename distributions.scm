@@ -2,8 +2,8 @@
 
 ;; Simulates a fair coin flip: returns 1 with probability 1/2 and 0
 ;; with probability 1/2.
-(define flip-spec
-  (make-pspec
+(define flip
+  (make-operator
    (lambda () (random 2))
    (lambda ()
      (lambda (x)
@@ -11,12 +11,11 @@
         (cond ((= x 1) 1/2)
               ((= x 0) 1/2)
               (else 0)))))))
-(define flip (pspec->operator flip-spec))
 
 ;; Bernoulli distribution: returns 1 with probability p and 0 with
 ;; probability 1-p.
-(define bernoulli-spec
-  (make-pspec
+(define bernoulli
+  (make-operator
    (lambda (p)
      (if (<= (random 1.0) p)
          1
@@ -27,8 +26,6 @@
         (cond ((= x 1) p)
               ((= x 0) (- 1 p))
               (else 0)))))))
-(define bernoulli
-  (pspec->operator bernoulli-spec))
 
 ;;; "Continuous" distributions
 
@@ -54,8 +51,8 @@
 
 ;; Uniform distribution: returns a value between a inclusive and b
 ;; exclusive. Assumes a < b.
-(define cont-uniform-spec
-  (make-pspec
+(define cont-uniform
+  (make-operator
    (lambda (a b)
      (+ (* (random 1.0)
            (- b a))
@@ -67,13 +64,11 @@
             (- (log (- b a)))
             x)
            -inf)))))
-(define cont-uniform
-  (pspec->operator cont-uniform-spec))
 
 ;; Normal distribution with mean of mean and standard deviation of
 ;; stdev.
-(define normal-spec
-  (make-pspec
+(define normal
+  (make-operator
    (lambda (mean stdev)
      ;; draw from standard normal distribution using marsaglia polar
      ;; method
@@ -98,5 +93,3 @@
                    (* 2 (square stdev)))))
           (* stdev (sqrt (* 2 *pi*)))))
         x)))))
-(define normal
-  (pspec->operator normal-spec))

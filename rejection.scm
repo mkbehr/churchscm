@@ -14,7 +14,13 @@
       (set-rejection-state-top-level!
        *sampler-state*
        operator-instance))
-  (resume operator-instance))
+  (let ((value (instance-sample operator-instance)))
+    (if (and (prob-operator-instance-constrained? operator-instance)
+             (< (instance-mass instance value)
+               (random 1.0)))
+        (rejection-reject)
+        ((prob-operator-instance-continuation operator-instance)
+         value))))
 
 (define (rejection-return)
   ((rejection-state-output-continuation *sampler-state*)
@@ -94,6 +100,7 @@
                     (<= (rejection-state-nsamples *sampler-state*) 0)
                     (<= (rejection-state-cutoff *sampler-state*) 0))
                    (rejection-return)
-                   (if (null? (rejection-state-top-level *sampler-state*))
+                   (if (null?
+                        (rejection-state-top-level *sampler-state*))
                        (lp (thunk))
                        (rejection-restart)))))))))

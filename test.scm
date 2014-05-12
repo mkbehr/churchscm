@@ -220,7 +220,10 @@
    (write-char #\space)
    (write (internal-time/ticks->seconds real-time))
    (newline)))
-;; MCMC is hopefully faster!
+;; MCMC is hopefully faster! Though note that the speed of MCMC is
+;; determined entirely by the sampler's parameters and the time it
+;; takes to draw a sample, while the speed of rejection sampling also
+;; depends on the probability of rejecting a sample.
 
 (let ((n 1000))
   (/ (fold-left
@@ -304,60 +307,6 @@
 ;; and bad proposals, but named-bayes-net should reject some feasible
 ;; proposals.
 
-(equal-histogram
- (rejection-query
-  10000 100000
-  (lambda ()
-    (simple-bayes-net '(#f #f #f 1)))))
-
-(equal-histogram
- (mh-query
-  10000 100 10
-  (lambda ()
-    (simple-bayes-net '(#f #f #f 1)))))
-
-(equal-histogram
- (mh-query
-  10000 100 10
-  (lambda ()
-    (named-bayes-net '(#f #f #f 1)))))
-
-(equal-histogram
- (mh-query
-  10 0 1
-  (lambda ()
-    (simple-bayes-net '(#f #f #f 1)))))
-
-(equal-histogram
- (mh-query
-  10 0 1
-  (lambda ()
-    (named-bayes-net '(#f #f #f 1)))))
-
-(equal-histogram
- (mh-query
-  10000 0 10
-  (lambda ()
-    (let* ((a ((named-operator bernoulli '()) 0.5))
-           (b ((named-operator bernoulli '())
-               (if (= a 1)
-                   0.8
-                   0.4))))
-      (flip)
-      (list a b)))))
-
-(equal-histogram
- (mh-query
-  10000 0 10
-  (lambda ()
-    (let* ((a ((named-operator bernoulli 'a) 0.5))
-           (b ((named-operator bernoulli 'b)
-               (if (= a 1)
-                   0.8
-                   0.4))))
-      (flip)
-      (list a b)))))
-
 (define (constrained-bayes-net observation)
   (let ((cloudy-constraint (list-ref observation 0))
         (sprinkler-constraint (list-ref observation 1))
@@ -365,14 +314,12 @@
         (wet-grass-constraint (list-ref observation 3)))
     (let* ((cloudy-operator
             (if cloudy-constraint
-                (constrain (named-operator bernoulli 'cloudy)
-                           cloudy-constraint)
+                (constrain bernoulli cloudy-constraint)
                 (named-operator bernoulli 'cloudy)))
            (cloudy (cloudy-operator 0.5))
            (sprinkler-operator
             (if sprinkler-constraint
-                (constrain (named-operator bernoulli 'sprinkler)
-                           sprinkler-constraint)
+                (constrain bernoulli sprinkler-constraint)
                 (named-operator bernoulli 'sprinkler)))
            (sprinkler-prob
             (if (= cloudy 1)
@@ -382,8 +329,7 @@
                        sprinkler-prob))
            (rain-operator
             (if rain-constraint
-                (constrain (named-operator bernoulli 'rain)
-                           rain-constraint)
+                (constrain bernoulli rain-constraint)
                 (named-operator bernoulli 'rain)))
            (rain-prob
             (if (= cloudy 1)
@@ -393,8 +339,7 @@
                   rain-prob))
            (wet-grass-operator
             (if wet-grass-constraint
-                (constrain (named-operator bernoulli 'wet-grass)
-                           wet-grass-constraint)
+                (constrain bernoulli wet-grass-constraint)
                 (named-operator bernoulli 'wet-grass)))
            (wet-grass-prob
             (cond
@@ -410,11 +355,17 @@
                        wet-grass-prob)))
       (list cloudy sprinkler rain wet-grass))))
 
+(equal-histogram
+ (rejection-query
+  10000 100000
+  (lambda ()
+    (constrained-bayes-net '(#f #f 1 1)))))
+
 (define *rejected-samples* 0)
 (define *bad-proposals* 0)
 (equal-histogram
  (mh-query
-  10000 10000 100
+  10000 10000 10
   (lambda ()
     (constrained-bayes-net '(#f #f 1 1)))))
 *rejected-samples*
