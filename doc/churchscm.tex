@@ -12,7 +12,7 @@
 
 \title{\texttt{churchscm}: Probabilistic Programming within MIT Scheme}
 \author{Michael Behr}
-\date{\today}
+\date{May 12, 2014}
 
 \begin{document}
 
@@ -75,7 +75,7 @@ can be created and used by means of the procedures below.
 
 \begin{description}
   \item[\texttt{(make-operator sampler logmass-function)}] \hfill
-    
+
     Creates a probabilistic operator.
 
     \texttt{sampler} should be a procedure that takes any number of
@@ -97,9 +97,9 @@ can be created and used by means of the procedures below.
 
     \texttt{sampler} and \texttt{logmass-function} must represent the
     same probability distribution, or inference may not be accurate.
-    
+
   \item[\texttt{(named-operator operator name)}] \hfill
-    
+
     Gives a name to a probabilistic operator. The resulting operator
     will have the same semantics as the original operator, except that
     samplers will be able to recognize that it is the same operator
@@ -122,20 +122,20 @@ can be created and used by means of the procedures below.
     behavior will be undefined. However, if two operators in different
     histories have the same name, it is not necessary that they share
     any other similarities.
-    
+
   \item[\texttt{(mem operator)}] \hfill
 
     Creates an operator that returns the same value whenever it is
     called with the same arguments multiple times within the same
     history of a computation. Argument lists are compared with
     \texttt{equal?}.
-    
+
   \item[\texttt{(observe observed)}] \hfill
 
     Condition the distribution on an observation. \texttt{observed}
     should be a boolean value; computations in which it is false are
     inconsistent, and they will not be sampled from.
-    
+
   \item[\texttt{(constrain operator value)}] \hfill
 
     Condition the distribution on the observation that a certain
@@ -152,7 +152,7 @@ can be created and used by means of the procedures below.
     \texttt{value} using \texttt{observe}; however, it may be more
     efficient, because the sampler can entirely neglect the
     inconsistent histories where the result is not \texttt{value}.
-    
+
   \item[\texttt{(mass->logmass mass)}] \hfill
 
     Converts probability mass into its natural logarithm. Identical to
@@ -182,14 +182,14 @@ A few sample probabilistic operators are defined.
 
   The Bernoulli distribution with parameter \texttt{p}: returns 1 with
   probability \texttt{p} and 0 with probability $1-\texttt{p}$.
-  
+
 \item[\texttt{(cont-uniform a b)}] \hfill
 
   The continuous uniform distribution on
   $[\texttt{a},\texttt{b})$. Returns a value between \texttt{a}
   inclusive and \texttt{b} exclusive. Requires $\texttt{a} <
   \texttt{b}$.
-    
+
 \item[\texttt{(normal mean stdev)}] \hfill
 
   The normal distribution with mean \texttt{mean} and standard
@@ -201,9 +201,9 @@ A few sample probabilistic operators are defined.
 \label{sec:sampling}
 
 \begin{description}
-  
+
 \item[\texttt{(rejection-query samples cutoff thunk)}] \hfill
-  
+
   Draw samples from \texttt{thunk} using rejection
   sampling. \texttt{thunk} should be a procedure taking no arguments.
   \texttt{samples} determines the number of samples to be returned. At
@@ -295,7 +295,7 @@ A few sample probabilistic operators are defined.
 
   When there is no current sampler, calling a probabilistic operator
   will simply draw and return a sample from its sampling procedure.
-  
+
 \end{description}
 
 \section{Defining new samplers}
@@ -310,27 +310,27 @@ computation to be sampled from:
   A value representing the state of the sampler. There are no
   requirements for what this value should be; it is only interacted
   with by procedures specific to the sampler.
-  
+
 \item[\texttt{(add-to-sampler operator-instance)}] \hfill
 
   A procedure that is called whenever a probabilistic operator is
   evaluated. \texttt{operator-instance} is a value of the structure
   type \texttt{prob-operator-instance}, containing information about
   the operator: its slots are described later in this section.
-  
+
 \item[\texttt{(observe observed)}] \hfill
 
   Condition the distribution on an observation. \texttt{observed}
   should be a boolean value; computations in which it is false are
   inconsistent, and they will not be sampled from.
-    
+
 \item[\texttt{(sampler-computation-state)}] \hfill
 
   Returns a value representing the current history of the
   computation. This value must give the proper result when passed to
   \texttt{sampler-in-computation?}, as described below; there are no
   other requirements for what the value must be.
-  
+
 \item[\texttt{(sampler-in-computation? state)}] \hfill
 
   Tests whether a given state of the computation is in the history of
@@ -340,7 +340,7 @@ computation to be sampled from:
   \texttt{sampler-computation-state} occurred in the same history as
   the current call to \texttt{sampler-in-computation}, and \texttt{\#f}
   otherwise.
-  
+
 \end{description}
 
 When a sample is to be drawn from a probabilistic
@@ -406,7 +406,7 @@ improvements are needed.
   recursion. Supplying these names manually should be possible, but it
   would be better for the library to provide names itself. See
   \cite{wingate_lightweight_2011} for more discussion on naming.
-    
+
 \item[Nested sampling] Support for nested sampling is currently
   incomplete: it is possible with rejection sampling, but not with
   Metropolis-Hastings. Nested sampling is desirable for programs
@@ -431,35 +431,10 @@ improvements are needed.
   simply from difficulties converging. Future work should introduce
   robust debugging tools to mitigate these difficulties as much as
   possible.
-  
+
 \end{description}
 
-\bibliography{6945}
+\bibliography{churchscm}
 \bibliographystyle{plain}
-
-\section{Appendix: Code listings}
-
-At the time of writing, these files are also available at \url{http://web.mit.edu/mkbehr/Public/churchscm}.
-
-\subsection{\texttt{load.scm}}
-\lstinputlisting{../load.scm}
-
-\subsection{\texttt{church-base.scm}}
-\lstinputlisting{../church-base.scm}
-
-\subsection{\texttt{util.scm}}
-\lstinputlisting{../util.scm}
-
-\subsection{\texttt{distributions.scm}}
-\lstinputlisting{../distributions.scm}
-
-\subsection{\texttt{rejection.scm}}
-\lstinputlisting{../rejection.scm}
-
-\subsection{\texttt{metropolis-hastings.scm}}
-\lstinputlisting{../metropolis-hastings.scm}
-
-\subsection{\texttt{test.scm}}
-\lstinputlisting{../test.scm}
 
 \end{document}
